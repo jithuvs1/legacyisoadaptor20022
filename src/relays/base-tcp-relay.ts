@@ -156,7 +156,7 @@ export class BaseTcpRelay implements TcpRelay {
               Accept: 'text/xml'
           },
           method: "POST",
-          body: iso20022
+          body: js2xmlparser.parse("Document", iso20022)
       })
      
       try{
