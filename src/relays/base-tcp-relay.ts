@@ -9,6 +9,9 @@ import { Money } from '@mojaloop/sdk-standard-components'
 import { pad } from '../utils/util'
 import { TcpRelay, LegacyMessage } from '../types/tcpRelay'
 import { ResponseCodes, TcpRelayServices, TcpRelayConfig } from '../types/tcpRelay'
+var request = require("request");
+const fetch = require('node-fetch')
+const js2xmlparser = require("js2xmlparser");
 const MlNumber = require('@mojaloop/ml-number')
 
 export class BaseTcpRelay implements TcpRelay {
@@ -52,6 +55,127 @@ export class BaseTcpRelay implements TcpRelay {
         this._logger.debug(this._lpsId + ' relay: Message converted to JSON: ' + JSON.stringify(legacyMessage))
 
         const messageType = this.getMessageType(legacyMessage[0])
+        const processingcode = legacyMessage[3].toString().substring(0,2)
+        if(legacyMessage[0]=='0200'&& processingcode == '40'){
+          var iso20022 = {
+            "xmlns": "urn:iso:std:iso:20022:tech:xsd:pacs.008.001.05",
+            "xsi": "http://www.w3.org/2001/XMLSchema-instance",
+            "FIToFICstmrCdtTrf": {
+                "GrpHdr": {
+                    "MsgId": "7c23e80c-d078-4077-8263-2c047876fcf6",
+                    "CreDtTm": new Date(new Date().getTime() + 10000),
+                    "NbOfTxs": "1",
+                    "SttlmInf": {
+                        "SttlmMtd": "CLRG"
+                    }
+                },
+                "CdtTrfTxInf": {
+                    "PmtId": {
+                        "EndToEndId": "KGB57799",
+                        "TxId": "KGB57799"
+                    },
+                    "PmtTpInf": {
+                        "SvcLvl": {
+                            "Cd": "NURG"
+    
+                        }
+                    },
+                    "IntrBkSttlmAmt": {
+                        "Ccy": legacyMessage[49],
+                        "amount": legacyMessage[4]
+                    },
+                    "IntrBkSttlmDt": "2020-01-01",
+                    "ChrgBr": "SLEV",
+                    "Dbtr": {
+                        "Nm": "Joe Soap",
+                        "PstlAdr": {
+                            "PstlAdr": {
+                                "StrtNm": "120 HIGH ROAD",
+                                "PstCd": "4430",
+                                "TwnNm": "Manzini",
+                                "Ctry": "SZ"
+                            }
+                        }
+    
+                    },
+                    "DbtrAcct": {
+                        "Id": {
+                            "other": {
+                                "Id": legacyMessage[102]
+                            }
+                        }
+                    },
+                    "DbtrAgt": {
+                        "FinInstnId": {
+                            "BICFI": legacyMessage[32]
+                        }
+                    },
+                    "CdtrAgt": {
+                        "FinInstnId": {
+                            "BICFI": legacyMessage[100]
+                        }
+    
+                    },
+                    "Cdtr": {
+                        "Nm": "SOAP",
+                        "PstlAdr": {
+                            "StrtNm": "78 Strand Str",
+                            "PstCd": "6725",
+                            "TwnNm": "Cape Town",
+                            "Ctry": "ZA"
+                        }
+    
+                    },
+                    "CdtrAcct": {
+                        "Id": {
+                            "Other": {
+                                "Id": legacyMessage[103]
+                            }
+                        }
+    
+                    },
+                    "RgltryRptg": {
+                        "Dtls": {
+                            "Cd": "10402"
+                        }
+    
+                    },
+                    "RmtInf": {
+                        "Ustrd": "52363"
+                    }
+                }
+    
+            }
+        }
+
+        this._logger.info(js2xmlparser.parse("Document", iso20022));
+        const url = 'http://122.165.152.131:8444/payeefsp/callbacks/{123}'
+        const response = await fetch(url, {
+
+          headers: {
+              Accept: 'text/xml'
+          },
+          method: "POST",
+          body: iso20022
+      })
+     
+      try{
+        if(response.status=='200'){
+          socket.write(encode({ ...legacyMessage, 0: '0210', 39: '00' }))
+          this._logger.info('response 200 ')
+        }else{
+          legacyMessage[39]='91'
+          socket.write(encode({ ...legacyMessage, 0: '0210', 39: '91' }))
+          this._logger.info('response 404 ')
+        }
+       
+      }catch(error){
+        this._logger.error(error)
+      }
+
+        }
+        
+        
         const lpsMessage = await LpsMessage.query().insertAndFetch({ lpsId: this._lpsId, lpsKey, type: messageType, content: legacyMessage })
         switch (messageType) {
           case LegacyMessageType.authorizationRequest:
